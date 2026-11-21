@@ -22,22 +22,20 @@ const getFileUri = (monaco, filePath) => {
   return monaco.Uri.parse(`inmemory://workspace${cleanPath}`);
 };
 
-export default function MonacoWrapper({ readOnlyOverride = false }) {
+function MonacoWrapper({ readOnlyOverride = false }) {
   const editorRef = useRef(null);
   const monaco = useMonaco();
   const viewStatesRef = useRef({});
-  const prevActiveFileRef = useRef('');
+  const currentMountedFileRef = useRef('');
   const contentChangeSubRef = useRef(null);
 
-  const {
-    activeFilePath,
-    filesMap,
-    fileTree,
-    challenge,
-    updateFileContent,
-    isFinalSubmitted,
-    recordViolation
-  } = useIdeStore();
+  // Fine-grained Zustand selectors to prevent re-renders on keystrokes
+  const activeFilePath = useIdeStore((s) => s.activeFilePath);
+  const fileTree = useIdeStore((s) => s.fileTree);
+  const challenge = useIdeStore((s) => s.challenge);
+  const isFinalSubmitted = useIdeStore((s) => s.isFinalSubmitted);
+  const recordViolation = useIdeStore((s) => s.recordViolation);
+  const updateFileContent = useIdeStore((s) => s.updateFileContent);
 
   // Determine if active file is read-only
   const isReadOnly = useMemo(() => {
@@ -71,43 +69,59 @@ export default function MonacoWrapper({ readOnlyOverride = false }) {
 
   const language = useMemo(() => getLanguageForPath(activeFilePath), [activeFilePath]);
 
-  // Synchronize and instantiate individual ITextModel for every file in the workspace
+  const editorOptions = useMemo(() => ({
+    readOnly: isReadOnly,
+    domReadOnly: isReadOnly,
+    contextmenu: false,
+    minimap: { enabled: false },
+    scrollBeyondLastLine: false,
+    automaticLayout: true,
+    tabSize: 2,
+    cursorBlinking: 'smooth',
+    renderWhitespace: 'selection',
+    formatOnPaste: false,
+    formatOnType: false
+  }), [isReadOnly]);
+
+  // Expose global window.monaco
   useEffect(() => {
-    if (!monaco) return;
-    if (typeof window !== 'undefined') {
+    if (monaco && typeof window !== 'undefined') {
       window.monaco = monaco;
     }
-    if (!filesMap) return;
+  }, [monaco]);
 
-    Object.entries(filesMap).forEach(([filePath, content]) => {
+  // Synchronize initial models for files when challenge changes or monaco loads
+  useEffect(() => {
+    if (!monaco) return;
+
+    const currentFiles = useIdeStore.getState().filesMap || {};
+    Object.entries(currentFiles).forEach(([filePath, content]) => {
       const uri = getFileUri(monaco, filePath);
       if (!uri) return;
 
       let model = monaco.editor.getModel(uri);
       if (!model) {
-        model = monaco.editor.createModel(content || '', getLanguageForPath(filePath), uri);
-      } else if (filePath !== activeFilePath && model.getValue() !== content) {
-        // Only sync background model if content changed externally
-        model.setValue(content || '');
+        monaco.editor.createModel(content || '', getLanguageForPath(filePath), uri);
       }
     });
-  }, [monaco, filesMap, activeFilePath]);
+  }, [monaco, challenge]);
 
-  // Clean Model Switch Protocol
+  // Clean Model Switch Protocol (Only invoked when navigating to a DIFFERENT file)
   const switchModel = useCallback((filePath, readOnlyState) => {
     const editor = editorRef.current;
     if (!editor || !monaco || !filePath) return;
 
-    // 1. Save current view state before switching
-    if (prevActiveFileRef.current && prevActiveFileRef.current !== filePath) {
-      viewStatesRef.current[prevActiveFileRef.current] = editor.saveViewState();
+    // 1. Save view state of previously mounted file
+    const prevFile = currentMountedFileRef.current;
+    if (prevFile && prevFile !== filePath) {
+      viewStatesRef.current[prevFile] = editor.saveViewState();
     }
 
     // 2. Resolve or create target model
     const targetUri = getFileUri(monaco, filePath);
     let targetModel = monaco.editor.getModel(targetUri);
     if (!targetModel) {
-      const initialContent = filesMap[filePath] || '';
+      const initialContent = useIdeStore.getState().filesMap[filePath] || '';
       targetModel = monaco.editor.createModel(initialContent, getLanguageForPath(filePath), targetUri);
     }
 
@@ -117,12 +131,14 @@ export default function MonacoWrapper({ readOnlyOverride = false }) {
       contentChangeSubRef.current = null;
     }
 
-    // 4. Safely set model on editor
+    // 4. Safely mount model on editor
     editor.setModel(targetModel);
 
-    // 5. Restore saved view state if available
+    // 5. Restore saved view state if available (cursor position, scroll)
     if (viewStatesRef.current[filePath]) {
       editor.restoreViewState(viewStatesRef.current[filePath]);
+    } else {
+      editor.focus();
     }
 
     // 6. Apply dynamic read-only locks AFTER model switch
@@ -131,7 +147,7 @@ export default function MonacoWrapper({ readOnlyOverride = false }) {
       domReadOnly: readOnlyState
     });
 
-    // 7. Subscribe to model edits for the active file
+    // 7. Subscribe to model edits: update state without re-triggering setModel
     contentChangeSubRef.current = targetModel.onDidChangeContent(() => {
       if (!readOnlyState) {
         const updatedVal = targetModel.getValue();
@@ -139,13 +155,22 @@ export default function MonacoWrapper({ readOnlyOverride = false }) {
       }
     });
 
-    prevActiveFileRef.current = filePath;
-  }, [monaco, filesMap, updateFileContent]);
+    currentMountedFileRef.current = filePath;
+  }, [monaco, updateFileContent]);
 
-  // React to activeFilePath or read-only status changes
+  // File navigation watcher: ONLY switch models if user clicked a DIFFERENT file
   useEffect(() => {
-    if (editorRef.current && monaco && activeFilePath) {
+    if (!editorRef.current || !monaco || !activeFilePath) return;
+
+    if (currentMountedFileRef.current !== activeFilePath) {
+      // User switched to a new file in tree
       switchModel(activeFilePath, isReadOnly);
+    } else {
+      // Same file, just update readOnly options dynamically without re-mounting model
+      editorRef.current.updateOptions({
+        readOnly: isReadOnly,
+        domReadOnly: isReadOnly
+      });
     }
   }, [activeFilePath, isReadOnly, monaco, switchModel]);
 
@@ -168,7 +193,7 @@ export default function MonacoWrapper({ readOnlyOverride = false }) {
       renderWhitespace: 'selection',
       formatOnPaste: false,
       formatOnType: false,
-      contextmenu: false // Disable Monaco's internal right-click context menu
+      contextmenu: false
     });
 
     // Anti-Cheat: Intercept copy, cut, paste inside Monaco widget
@@ -183,8 +208,8 @@ export default function MonacoWrapper({ readOnlyOverride = false }) {
       }
     });
 
-    // If an active file is already selected, mount its model immediately
-    if (activeFilePath) {
+    // If an active file is already selected, mount its model once
+    if (activeFilePath && currentMountedFileRef.current !== activeFilePath) {
       switchModel(activeFilePath, isReadOnly);
     }
   };
@@ -233,11 +258,7 @@ export default function MonacoWrapper({ readOnlyOverride = false }) {
             height="100%"
             theme="vs-dark"
             onMount={handleEditorDidMount}
-            options={{
-              readOnly: isReadOnly,
-              domReadOnly: isReadOnly,
-              contextmenu: false
-            }}
+            options={editorOptions}
           />
         ) : (
           <div className="h-full flex items-center justify-center text-slate-500 text-xs font-mono">
@@ -248,3 +269,5 @@ export default function MonacoWrapper({ readOnlyOverride = false }) {
     </div>
   );
 }
+
+export default React.memo(MonacoWrapper);

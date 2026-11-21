@@ -1,24 +1,35 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { io } from 'socket.io-client';
 import { useIdeStore } from '../store/ideStore';
 
 export const useSocket = (submissionId) => {
   const socketRef = useRef(null);
+  const currentSubIdRef = useRef(submissionId);
   const { setExecutionProgress, setTestResults, appendTerminalLog, setIsExecuting } = useIdeStore();
+
+  // Keep submissionId in ref without triggering socket reconnects
+  useEffect(() => {
+    currentSubIdRef.current = submissionId;
+    if (socketRef.current?.connected && submissionId) {
+      socketRef.current.emit('join:submission', submissionId);
+    }
+  }, [submissionId]);
 
   useEffect(() => {
     const token = localStorage.getItem('ag_token');
     const socket = io('/', {
       auth: { token },
-      transports: ['websocket', 'polling']
+      transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000
     });
 
     socketRef.current = socket;
 
     socket.on('connect', () => {
-      console.log('Connected to Antigravity Live Socket:', socket.id);
-      if (submissionId) {
-        socket.emit('join:submission', submissionId);
+      if (currentSubIdRef.current) {
+        socket.emit('join:submission', currentSubIdRef.current);
       }
     });
 
@@ -39,22 +50,23 @@ export const useSocket = (submissionId) => {
     });
 
     return () => {
-      if (submissionId) {
-        socket.emit('leave:submission', submissionId);
+      if (currentSubIdRef.current) {
+        socket.emit('leave:submission', currentSubIdRef.current);
       }
       socket.disconnect();
     };
-  }, [submissionId, setExecutionProgress, setTestResults, appendTerminalLog, setIsExecuting]);
+  }, [setExecutionProgress, setTestResults, appendTerminalLog, setIsExecuting]);
 
-  const joinSubmissionRoom = (newSubmissionId) => {
-    if (socketRef.current && newSubmissionId) {
+  const joinSubmissionRoom = useCallback((newSubmissionId) => {
+    if (!newSubmissionId) return;
+    currentSubIdRef.current = newSubmissionId;
+    if (socketRef.current?.connected) {
       socketRef.current.emit('join:submission', newSubmissionId);
     }
-  };
+  }, []);
 
   return {
     socket: socketRef.current,
     joinSubmissionRoom
   };
 };
-

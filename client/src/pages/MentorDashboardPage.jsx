@@ -15,7 +15,8 @@ import {
   Clock,
   Trophy,
   CheckCircle2,
-  BookOpen
+  BookOpen,
+  Edit3
 } from 'lucide-react';
 
 export default function MentorDashboardPage() {
@@ -25,6 +26,7 @@ export default function MentorDashboardPage() {
   const [analyticsData, setAnalyticsData] = useState(null);
   const [isLoadingAnalytics, setIsLoadingAnalytics] = useState(false);
   const [isLoadingChallenges, setIsLoadingChallenges] = useState(true);
+  const [editingChallenge, setEditingChallenge] = useState(null);
 
   // Load all challenges
   const fetchChallenges = async () => {
@@ -164,7 +166,10 @@ export default function MentorDashboardPage() {
               </div>
 
               <button
-                onClick={() => setActiveTab('create')}
+                onClick={() => {
+                  setEditingChallenge(null);
+                  setActiveTab('create');
+                }}
                 className="flex items-center space-x-1.5 px-3.5 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold transition shadow-md shadow-purple-600/20"
               >
                 <PlusCircle className="w-4 h-4" />
@@ -184,7 +189,10 @@ export default function MentorDashboardPage() {
                   Get started by publishing your first coding assessment with customized test cases.
                 </p>
                 <button
-                  onClick={() => setActiveTab('create')}
+                  onClick={() => {
+                    setEditingChallenge(null);
+                    setActiveTab('create');
+                  }}
                   className="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold"
                 >
                   Create Assessment Now
@@ -245,6 +253,18 @@ export default function MentorDashboardPage() {
                         </button>
 
                         <div className="flex items-center space-x-2">
+                          <button
+                            onClick={() => {
+                              setEditingChallenge(c);
+                              setActiveTab('create');
+                            }}
+                            className="flex items-center space-x-1 px-2.5 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-medium transition"
+                            title="Edit Challenge Scaffolding & Tests"
+                          >
+                            <Edit3 className="w-3.5 h-3.5 text-indigo-400" />
+                            <span>Edit</span>
+                          </button>
+
                           <Link
                             to={`/assessment/${cId}?mode=try_ide`}
                             className="flex items-center space-x-1 px-3 py-1.5 rounded-md bg-purple-600/20 text-purple-300 border border-purple-500/30 hover:bg-purple-600/30 text-xs font-medium transition"
@@ -270,15 +290,26 @@ export default function MentorDashboardPage() {
           </div>
         )}
 
-        {/* TAB 2: CREATE CHALLENGE */}
+        {/* TAB 2: CREATE / EDIT CHALLENGE */}
         {activeTab === 'create' && (
           <ChallengeEditor
+            challengeToEdit={editingChallenge}
             onCreated={async (newChallenge) => {
+              setEditingChallenge(null);
               const updatedList = await fetchChallenges();
               const newId = newChallenge?._id || newChallenge?.id || updatedList[0]?._id || updatedList[0]?.id;
               if (newId) {
                 setSelectedChallengeId(newId);
               }
+              setActiveTab('challenges');
+            }}
+            onUpdated={async () => {
+              setEditingChallenge(null);
+              await fetchChallenges();
+              setActiveTab('challenges');
+            }}
+            onCancel={() => {
+              setEditingChallenge(null);
               setActiveTab('challenges');
             }}
           />

@@ -23,7 +23,7 @@ export default function Navbar() {
             ENTRI
           </span>
           <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 font-mono font-medium">
-            ASSESSMENT
+            CodeLab
           </span>
         </Link>
       </div>
@@ -60,8 +60,8 @@ export default function Navbar() {
                   <div className="text-[10px] font-mono text-slate-400">{user?.email}</div>
                 </div>
                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${user?.role === 'MENTOR'
-                    ? 'bg-purple-950/60 text-purple-300 border-purple-800/60'
-                    : 'bg-emerald-950/60 text-emerald-300 border-emerald-800/60'
+                  ? 'bg-purple-950/60 text-purple-300 border-purple-800/60'
+                  : 'bg-emerald-950/60 text-emerald-300 border-emerald-800/60'
                   }`}>
                   {user?.role}
                 </span>

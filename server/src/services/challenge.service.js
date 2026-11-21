@@ -90,17 +90,13 @@ class ChallengeService {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>DOM Counter</title>
+  <title>Assessment Workspace</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div class="card">
-    <h1 id="counter-value">0</h1>
-    <div class="btn-group">
-      <button id="decrement-btn">-</button>
-      <button id="reset-btn">Reset</button>
-      <button id="increment-btn">+</button>
-    </div>
+  <div id="app">
+    <h1 id="title">Starter Workspace</h1>
+    <button id="action-btn">Click Me</button>
   </div>
   <script src="script.js"></script>
 </body>
@@ -113,24 +109,10 @@ class ChallengeService {
               isHidden: false,
               content: `body {
   font-family: sans-serif;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  min-height: 100vh;
+  margin: 0;
+  padding: 2rem;
   background-color: #0f172a;
   color: #f8fafc;
-}
-.card {
-  text-align: center;
-  padding: 2rem;
-  background: #1e293b;
-  border-radius: 12px;
-}
-button {
-  padding: 0.5rem 1.25rem;
-  margin: 0 0.5rem;
-  font-size: 1.1rem;
-  cursor: pointer;
 }`
             },
             {
@@ -138,92 +120,35 @@ button {
               name: 'script.js',
               isReadOnly: false,
               isHidden: false,
-              content: `let count = 0;
-const valueDisplay = document.getElementById('counter-value');
-const incBtn = document.getElementById('increment-btn');
-const decBtn = document.getElementById('decrement-btn');
-const resetBtn = document.getElementById('reset-btn');
+              content: `// Implement DOM interaction logic here
+const title = document.getElementById('title');
+const btn = document.getElementById('action-btn');
 
-function updateDisplay() {
-  if (valueDisplay) valueDisplay.textContent = count;
-}
-
-if (incBtn) {
-  incBtn.addEventListener('click', () => {
-    count++;
-    updateDisplay();
+if (btn) {
+  btn.addEventListener('click', () => {
+    if (title) title.textContent = 'Updated!';
   });
-}
-
-if (decBtn) {
-  decBtn.addEventListener('click', () => {
-    count--;
-    updateDisplay();
-  });
-}
-
-if (resetBtn) {
-  resetBtn.addEventListener('click', () => {
-    count = 0;
-    updateDisplay();
-  });
-}
-
-if (typeof module !== 'undefined') {
-  module.exports = { getCount: () => count };
 }`
             }
           ],
           testSuites: {
             sampleTests: {
               path: '__tests__/sample.test.js',
-              content: `describe('Sample Tests: Interactive Counter DOM Suite', () => {
-  beforeEach(() => {
-    document.body.innerHTML = \`
-      <h1 id="counter-value">0</h1>
-      <button id="decrement-btn">-</button>
-      <button id="reset-btn">Reset</button>
-      <button id="increment-btn">+</button>
-    \`;
-  });
-
-  test('Sample TC01: Initial counter value should be 0', () => {
-    const val = document.getElementById('counter-value').textContent;
-    expect(val).toBe('0');
-  });
-
-  test('Sample TC02: Increment button increases count by 1', () => {
-    const incBtn = document.getElementById('increment-btn');
-    incBtn.click();
-    expect(document.getElementById('counter-value').textContent).toBe('1');
+              content: `describe('Sample DOM Suite', () => {
+  test('Sample TC01: Title element is rendered', () => {
+    const title = document.getElementById('title');
+    expect(title).toBeDefined();
   });
 });`
             },
             hiddenTests: {
               path: '__tests__/hidden.test.js',
-              content: `describe('Hidden Assessment Suite: Edge Cases & Reset', () => {
-  beforeEach(() => {
-    document.body.innerHTML = \`
-      <h1 id="counter-value">0</h1>
-      <button id="decrement-btn">-</button>
-      <button id="reset-btn">Reset</button>
-      <button id="increment-btn">+</button>
-    \`;
-  });
-
-  test('Hidden TC03: Decrement button decreases count by 1', () => {
-    const decBtn = document.getElementById('decrement-btn');
-    decBtn.click();
-    expect(document.getElementById('counter-value').textContent).toBe('-1');
-  });
-
-  test('Hidden TC04: Reset button restores count to 0 after multiple operations', () => {
-    const incBtn = document.getElementById('increment-btn');
-    const resetBtn = document.getElementById('reset-btn');
-    incBtn.click();
-    incBtn.click();
-    resetBtn.click();
-    expect(document.getElementById('counter-value').textContent).toBe('0');
+              content: `describe('Hidden Evaluator DOM Suite', () => {
+  test('Hidden TC02: Button click modifies title', () => {
+    const btn = document.getElementById('action-btn');
+    const title = document.getElementById('title');
+    if (btn) btn.click();
+    expect(title ? title.textContent : '').toBe('Updated!');
   });
 });`
             }
@@ -240,31 +165,13 @@ if (typeof module !== 'undefined') {
               isHidden: false,
               content: `import React, { useState } from 'react';
 
-export default function TodoApp() {
-  const [items, setItems] = useState([]);
-  const [text, setText] = useState('');
-
-  const handleAdd = () => {
-    if (!text.trim()) return;
-    setItems([...items, { id: Date.now(), text }]);
-    setText('');
-  };
+export default function App() {
+  const [value, setValue] = useState('Active');
 
   return (
-    <div className="todo-box">
-      <h2>Todo List</h2>
-      <input
-        data-testid="todo-input"
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        placeholder="Add item..."
-      />
-      <button data-testid="todo-btn" onClick={handleAdd}>Add</button>
-      <ul data-testid="todo-list">
-        {items.map(item => (
-          <li key={item.id}>{item.text}</li>
-        ))}
-      </ul>
+    <div className="app-container">
+      <h2 data-testid="heading">{value}</h2>
+      <button onClick={() => setValue('Changed')}>Toggle</button>
     </div>
   );
 }`
@@ -273,21 +180,24 @@ export default function TodoApp() {
           testSuites: {
             sampleTests: {
               path: '__tests__/sample.test.js',
-              content: `describe('Sample Tests: React Component Suite', () => {
-  test('Sample TC01: Component module exports valid component', () => {
-    const App = require('../src/App');
+              content: `import React from 'react';
+import App from '../src/App';
+
+describe('Sample React Suite', () => {
+  test('Sample TC01: App exports a functional component', () => {
     expect(typeof App).toBe('function');
   });
 });`
             },
             hiddenTests: {
               path: '__tests__/hidden.test.js',
-              content: `describe('Hidden Assessment Suite: State Transitions', () => {
-  test('Hidden TC02: Disallows empty input additions', () => {
-    expect(true).toBe(true);
-  });
-  test('Hidden TC03: Item list maintains immutable state updates', () => {
-    expect(true).toBe(true);
+              content: `import React from 'react';
+import App from '../src/App';
+
+describe('Hidden Evaluator React Suite', () => {
+  test('Hidden TC02: Root container rendered', () => {
+    const el = App();
+    expect(el.props.className).toBe('app-container');
   });
 });`
             }
@@ -306,22 +216,9 @@ export default function TodoApp() {
 const app = express();
 app.use(express.json());
 
-let tasks = [
-  { id: 1, title: 'Complete Assessment', completed: false }
-];
-
-app.get('/api/tasks', (req, res) => {
-  res.json({ success: true, data: tasks });
-});
-
-app.post('/api/tasks', (req, res) => {
-  const { title } = req.body;
-  if (!title) {
-    return res.status(400).json({ success: false, error: 'Title required' });
-  }
-  const task = { id: Date.now(), title, completed: false };
-  tasks.push(task);
-  res.status(201).json({ success: true, data: task });
+// Implement API Routes
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok' });
 });
 
 module.exports = app;`
@@ -332,8 +229,8 @@ module.exports = app;`
               path: '__tests__/sample.test.js',
               content: `const app = require('../server');
 
-describe('Sample Tests: Express API Suite', () => {
-  test('Sample TC01: Express application instance is exported', () => {
+describe('Sample Express API Suite', () => {
+  test('Sample TC01: App instance is exported', () => {
     expect(typeof app).toBe('function');
   });
 });`
@@ -342,12 +239,9 @@ describe('Sample Tests: Express API Suite', () => {
               path: '__tests__/hidden.test.js',
               content: `const app = require('../server');
 
-describe('Hidden Assessment Suite: Edge Cases & Validation', () => {
-  test('Hidden TC02: POST /api/tasks rejects payloads missing title', () => {
-    expect(true).toBe(true);
-  });
-  test('Hidden TC03: Task items are persistently stored in memory', () => {
-    expect(true).toBe(true);
+describe('Hidden Evaluator API Suite', () => {
+  test('Hidden TC02: Router instance defined', () => {
+    expect(app._router).toBeDefined();
   });
 });`
             }
@@ -364,53 +258,44 @@ describe('Hidden Assessment Suite: Edge Cases & Validation', () => {
               isReadOnly: false,
               isHidden: false,
               content: `/**
- * Two Sum: Find indices of two numbers adding up to target
- * @param {number[]} nums
- * @param {number} target
- * @return {number[]}
+ * Solution Implementation
+ * @param {*} input
+ * @return {*}
  */
-function twoSum(nums, target) {
-  const map = new Map();
-  for (let i = 0; i < nums.length; i++) {
-    const complement = target - nums[i];
-    if (map.has(complement)) {
-      return [map.get(complement), i];
-    }
-    map.set(nums[i], i);
-  }
-  return [];
+function solution(input) {
+  // Write your algorithm here
+  return input;
 }
 
-module.exports = { twoSum };`
+module.exports = { solution };`
             }
           ],
           testSuites: {
             sampleTests: {
               path: '__tests__/sample.test.js',
-              content: `const { twoSum } = require('../solution');
+              content: `const { solution } = require('../solution');
 
-describe('Sample Tests: Basic Two Sum Assertions', () => {
-  test('Sample TC01: Standard positive integers', () => {
-    expect(twoSum([2, 7, 11, 15], 9)).toEqual([0, 1]);
+describe('Sample Test Suite', () => {
+  test('Sample TC01: Basic input assertion', () => {
+    expect(solution('hello')).toBe('hello');
   });
 
-  test('Sample TC02: Duplicate elements sum to target', () => {
-    expect(twoSum([3, 3], 6)).toEqual([0, 1]);
+  test('Sample TC02: Identity verification', () => {
+    expect(solution(42)).toBe(42);
   });
 });`
             },
             hiddenTests: {
               path: '__tests__/hidden.test.js',
-              content: `const { twoSum } = require('../solution');
+              content: `const { solution } = require('../solution');
 
-describe('Hidden Assessment Suite: Complex Boundary Cases', () => {
-  test('Hidden TC03: Negative numbers and zeroes', () => {
-    expect(twoSum([-1, -2, -3, -4, -5], -8)).toEqual([2, 4]);
+describe('Hidden Assessment Suite', () => {
+  test('Hidden TC03: Empty or null input handling', () => {
+    expect(solution(null)).toBe(null);
   });
 
-  test('Hidden TC04: Large sorted list efficiency verification', () => {
-    const list = [1, 5, 8, 12, 19, 25, 30];
-    expect(twoSum(list, 37)).toEqual([3, 5]);
+  test('Hidden TC04: Array parameter handling', () => {
+    expect(solution([1, 2, 3])).toEqual([1, 2, 3]);
   });
 });`
             }

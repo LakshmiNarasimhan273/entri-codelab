@@ -43,8 +43,9 @@ class IsolatedProcessDriver extends SandboxDriverInterface {
 const path = require('path');
 const assert = require('assert');
 const Module = require('module');
+const fs = require('fs');
 
-// Resilient module resolver supporting both require('../solution') and require('./solution')
+// 1. Resilient module resolver supporting both require('../solution') and require('./solution')
 const origResolveFilename = Module._resolveFilename;
 const projectRoot = path.resolve(__dirname, '..');
 
@@ -67,6 +68,227 @@ Module._resolveFilename = function (request, parent, isMain, options) {
   }
 };
 
+// 2. On-the-fly Sucrase Transpiler for JSX & ES Modules (import/export)
+let sucrase = null;
+try {
+  sucrase = require('sucrase');
+} catch (e) {}
+
+const transformCode = (code, filename) => {
+  if (!sucrase) return code;
+  try {
+    return sucrase.transform(code, {
+      transforms: ['jsx', 'imports'],
+      jsxRuntime: 'classic',
+      production: true,
+      filePath: filename || 'file.jsx'
+    }).code;
+  } catch (err) {
+    return code;
+  }
+};
+
+if (sucrase) {
+  require.extensions['.jsx'] = function (module, filename) {
+    const content = fs.readFileSync(filename, 'utf8');
+    module._compile(transformCode(content, filename), filename);
+  };
+
+  const origJsCompile = require.extensions['.js'];
+  require.extensions['.js'] = function (module, filename) {
+    if (filename.includes('node_modules')) {
+      return origJsCompile(module, filename);
+    }
+    const content = fs.readFileSync(filename, 'utf8');
+    if (content.includes('import ') || content.includes('export ') || content.includes('</') || content.includes('/>')) {
+      module._compile(transformCode(content, filename), filename);
+    } else {
+      origJsCompile(module, filename);
+    }
+  };
+}
+
+// 3. Resilient In-Memory DOM Mock for Browser/React/DOM Tests
+class MockElement {
+  constructor(tagName = 'div') {
+    this.tagName = tagName.toUpperCase();
+    this.children = [];
+    this.parentNode = null;
+    this._textContent = '';
+    this._innerHTML = '';
+    this.attributes = {};
+    this.style = {};
+    this.listeners = {};
+    this.value = '';
+    this.id = '';
+    this.className = '';
+  }
+
+  get textContent() {
+    if (this.children.length > 0) {
+      return this.children.map(c => c.textContent).join('');
+    }
+    return this._textContent;
+  }
+  set textContent(val) {
+    this._textContent = String(val);
+    this.children = [];
+  }
+
+  get innerHTML() {
+    return this._innerHTML || this._textContent;
+  }
+  set innerHTML(html) {
+    this._innerHTML = html;
+    this.children = [];
+    const tagRegex = /<([a-z0-9]+)([^>]*)>(.*?)<\\/\\1>|<([a-z0-9]+)([^>]*)\\/>/gis;
+    let match;
+    while ((match = tagRegex.exec(html)) !== null) {
+      const tag = match[1] || match[4];
+      const attrs = match[2] || match[5] || '';
+      const text = match[3] || '';
+      const child = new MockElement(tag);
+      child.textContent = text;
+      
+      const idMatch = attrs.match(/id=["']([^"']+)["']/i);
+      if (idMatch) child.id = idMatch[1];
+      
+      const classMatch = attrs.match(/class=["']([^"']+)["']/i);
+      if (classMatch) child.className = classMatch[1];
+
+      const testIdMatch = attrs.match(/data-testid=["']([^"']+)["']/i);
+      if (testIdMatch) child.setAttribute('data-testid', testIdMatch[1]);
+
+      this.appendChild(child);
+    }
+  }
+
+  appendChild(child) {
+    child.parentNode = this;
+    this.children.push(child);
+    return child;
+  }
+
+  removeChild(child) {
+    const idx = this.children.indexOf(child);
+    if (idx !== -1) {
+      child.parentNode = null;
+      this.children.splice(idx, 1);
+    }
+    return child;
+  }
+
+  addEventListener(event, handler) {
+    if (!this.listeners[event]) this.listeners[event] = [];
+    this.listeners[event].push(handler);
+  }
+
+  removeEventListener(event, handler) {
+    if (this.listeners[event]) {
+      this.listeners[event] = this.listeners[event].filter(h => h !== handler);
+    }
+  }
+
+  dispatchEvent(event) {
+    const type = typeof event === 'string' ? event : event.type;
+    const handlers = this.listeners[type] || [];
+    handlers.forEach(h => h.call(this, event));
+  }
+
+  click() {
+    this.dispatchEvent({ type: 'click', target: this });
+  }
+
+  setAttribute(name, val) {
+    this.attributes[name] = String(val);
+    if (name === 'id') this.id = String(val);
+    if (name === 'class') this.className = String(val);
+  }
+
+  getAttribute(name) {
+    return this.attributes[name] || null;
+  }
+
+  getElementById(id) {
+    if (this.id === id) return this;
+    for (const child of this.children) {
+      if (child.getElementById) {
+        const found = child.getElementById(id);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  querySelector(sel) {
+    if (sel.startsWith('#')) return this.getElementById(sel.slice(1));
+    if (sel.startsWith('.')) {
+      const cls = sel.slice(1);
+      if (this.className.split(' ').includes(cls)) return this;
+      for (const child of this.children) {
+        const found = child.querySelector(sel);
+        if (found) return found;
+      }
+      return null;
+    }
+    const tag = sel.toUpperCase();
+    if (this.tagName === tag) return this;
+    for (const child of this.children) {
+      const found = child.querySelector(sel);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  querySelectorAll(sel) {
+    const res = [];
+    const check = (node) => {
+      if (sel.startsWith('#') && node.id === sel.slice(1)) res.push(node);
+      else if (sel.startsWith('.') && node.className.split(' ').includes(sel.slice(1))) res.push(node);
+      else if (node.tagName === sel.toUpperCase()) res.push(node);
+      for (const child of node.children) check(child);
+    };
+    for (const child of this.children) check(child);
+    return res;
+  }
+
+  get classList() {
+    const self = this;
+    return {
+      add(...classes) {
+        const current = self.className.split(' ').filter(Boolean);
+        classes.forEach(c => { if (!current.includes(c)) current.push(c); });
+        self.className = current.join(' ');
+      },
+      remove(...classes) {
+        let current = self.className.split(' ').filter(Boolean);
+        current = current.filter(c => !classes.includes(c));
+        self.className = current.join(' ');
+      },
+      contains(c) {
+        return self.className.split(' ').filter(Boolean).includes(c);
+      },
+      toggle(c) {
+        if (this.contains(c)) this.remove(c);
+        else this.add(c);
+      }
+    };
+  }
+}
+
+const mockDoc = {
+  body: new MockElement('body'),
+  createElement(tag) { return new MockElement(tag); },
+  getElementById(id) { return this.body.getElementById(id); },
+  querySelector(sel) { return this.body.querySelector(sel); },
+  querySelectorAll(sel) { return this.body.querySelectorAll(sel); }
+};
+
+global.window = global;
+global.document = mockDoc;
+global.Element = MockElement;
+global.HTMLElement = MockElement;
+
 const results = {
   total: 0,
   passed: 0,
@@ -80,6 +302,8 @@ const results = {
 
 let currentSuite = '';
 let currentTier = 'sample'; // 'sample' | 'hidden'
+const beforeEachHooks = [];
+const afterEachHooks = [];
 
 function describe(name, fn) {
   currentSuite = name;
@@ -114,7 +338,9 @@ function test(name, fn) {
   const testTitle = currentSuite ? currentSuite + ' > ' + name : name;
   const start = Date.now();
   try {
+    for (const hook of beforeEachHooks) hook();
     fn();
+    for (const hook of afterEachHooks) hook();
     results.passed++;
     if (currentTier === 'sample') results.samplePassed++;
     else results.hiddenPassed++;
@@ -138,42 +364,85 @@ function test(name, fn) {
   }
 }
 
-function expect(actual) {
+function createMatchers(actual, isNot = false) {
+  const assertCondition = (cond, msg) => {
+    const passed = isNot ? !cond : cond;
+    if (!passed) throw new Error(msg);
+  };
+
   return {
     toBe(expected) {
-      if (actual !== expected) {
-        throw new Error('Expected: ' + JSON.stringify(expected) + ', Received: ' + JSON.stringify(actual));
-      }
+      assertCondition(
+        actual === expected,
+        isNot
+          ? 'Expected value not to be: ' + JSON.stringify(expected)
+          : 'Expected: ' + JSON.stringify(expected) + ', Received: ' + JSON.stringify(actual)
+      );
     },
     toEqual(expected) {
+      let isEqual = false;
       try {
         assert.deepStrictEqual(actual, expected);
+        isEqual = true;
       } catch (e) {
-        throw new Error('Expected deep equality: ' + JSON.stringify(expected) + ', Received: ' + JSON.stringify(actual));
+        isEqual = false;
       }
+      assertCondition(
+        isEqual,
+        isNot
+          ? 'Expected values not to deeply equal'
+          : 'Expected deep equality: ' + JSON.stringify(expected) + ', Received: ' + JSON.stringify(actual)
+      );
     },
     toBeGreaterThan(expected) {
-      if (!(actual > expected)) throw new Error('Expected ' + actual + ' to be > ' + expected);
+      assertCondition(actual > expected, 'Expected ' + actual + (isNot ? ' not to be > ' : ' to be > ') + expected);
     },
     toBeLessThan(expected) {
-      if (!(actual < expected)) throw new Error('Expected ' + actual + ' to be < ' + expected);
+      assertCondition(actual < expected, 'Expected ' + actual + (isNot ? ' not to be < ' : ' to be < ') + expected);
     },
     toBeNull() {
-      if (actual !== null) throw new Error('Expected null, got ' + actual);
+      assertCondition(actual === null, 'Expected ' + actual + (isNot ? ' not to be null' : ' to be null'));
     },
     toBeDefined() {
-      if (typeof actual === 'undefined') throw new Error('Expected defined, got undefined');
+      assertCondition(typeof actual !== 'undefined', 'Expected defined, got undefined');
     },
-    toContain(item) {
-      if (!actual || !actual.includes(item)) throw new Error('Expected ' + JSON.stringify(actual) + ' to contain ' + JSON.stringify(item));
+    toBeUndefined() {
+      assertCondition(typeof actual === 'undefined', 'Expected undefined, got ' + typeof actual);
     },
     toBeTruthy() {
-      if (!actual) throw new Error('Expected truthy value, received: ' + actual);
+      assertCondition(Boolean(actual), 'Expected truthy value, received: ' + actual);
     },
     toBeFalsy() {
-      if (actual) throw new Error('Expected falsy value, received: ' + actual);
+      assertCondition(!Boolean(actual), 'Expected falsy value, received: ' + actual);
+    },
+    toContain(item) {
+      const has = Array.isArray(actual) ? actual.includes(item) : (typeof actual === 'string' ? actual.includes(item) : false);
+      assertCondition(has, 'Expected ' + JSON.stringify(actual) + (isNot ? ' not to contain ' : ' to contain ') + JSON.stringify(item));
+    },
+    toThrow(expected) {
+      let threw = false;
+      let thrownErr = null;
+      try {
+        if (typeof actual === 'function') actual();
+      } catch (e) {
+        threw = true;
+        thrownErr = e;
+      }
+      assertCondition(threw, 'Expected function to throw error');
+      if (threw && expected && !isNot) {
+        const msg = thrownErr ? thrownErr.message : '';
+        if (typeof expected === 'string' && !msg.includes(expected)) {
+          throw new Error('Expected error message to include "' + expected + '", got "' + msg + '"');
+        }
+      }
     }
   };
+}
+
+function expect(actual) {
+  const matchers = createMatchers(actual, false);
+  matchers.not = createMatchers(actual, true);
+  return matchers;
 }
 
 // Global Jest test harness bindings
@@ -181,8 +450,8 @@ global.describe = describe;
 global.test = test;
 global.it = test;
 global.expect = expect;
-global.beforeEach = (fn) => {};
-global.afterEach = (fn) => {};
+global.beforeEach = (fn) => { beforeEachHooks.push(fn); };
+global.afterEach = (fn) => { afterEachHooks.push(fn); };
 
 try {
   // Execute Tier 1: Sample Tests
@@ -190,7 +459,8 @@ try {
     currentTier = 'sample';
     try {
       (() => {
-        ${sampleCode}
+        const compiledSample = transformCode(${JSON.stringify(sampleCode)}, '__tests__/sample.test.js');
+        eval(compiledSample);
       })();
     } catch (sampleErr) {
       results.suites.push({
@@ -211,7 +481,8 @@ try {
     currentTier = 'hidden';
     try {
       (() => {
-        ${hiddenCode}
+        const compiledHidden = transformCode(${JSON.stringify(hiddenCode)}, '__tests__/hidden.test.js');
+        eval(compiledHidden);
       })();
     } catch (hiddenErr) {
       results.suites.push({
@@ -256,7 +527,6 @@ try {
       // 4. Spawn isolated Node child process
       const nodeArgs = [
         `--max-old-space-size=${memoryLimitMb}`,
-        '--disallow-code-generation-from-strings',
         runnerFile
       ];
 
@@ -265,11 +535,17 @@ try {
         let stderr = '';
         let killed = false;
 
+        const projectRoot = path.resolve(__dirname, '../../..');
+        const rootNodeModules = path.join(projectRoot, 'node_modules');
+        const serverNodeModules = path.join(projectRoot, 'server', 'node_modules');
+        const nodePath = [rootNodeModules, serverNodeModules, process.env.NODE_PATH || ''].filter(Boolean).join(path.delimiter);
+
         const proc = spawn(process.execPath, nodeArgs, {
           cwd: tempDir,
           env: {
             NODE_ENV: 'test',
-            PATH: process.env.PATH
+            PATH: process.env.PATH,
+            NODE_PATH: nodePath
           },
           windowsHide: true
         });

@@ -64,8 +64,8 @@ export const useIdeStore = create((set, get) => ({
       });
     }
 
-    // If existing submission has edited code, merge it
-    if (existingSubmission?.submittedCode) {
+    // If existing submission has edited code, merge it (only for learner mode, never in try mode)
+    if (!isTryMode && existingSubmission?.submittedCode) {
       filesMap = {
         ...filesMap,
         ...existingSubmission.submittedCode
@@ -83,21 +83,53 @@ export const useIdeStore = create((set, get) => ({
       filesMap,
       activeFilePath: defaultFile,
       isTryMode: !!isTryMode,
+      isExecuting: false,
+      executionStatus: 'IDLE',
+      executionProgress: 0,
+      activeSubmissionId: null,
       isSubmitting: false,
-      testResults: existingSubmission?.testResults || null,
-      isFinalSubmitted: existingSubmission?.isFinalSubmission || false,
-      timeSpentSeconds: existingSubmission?.timeSpentSeconds || 0,
+      testResults: !isTryMode ? (existingSubmission?.testResults || null) : null,
+      isFinalSubmitted: !isTryMode ? (existingSubmission?.isFinalSubmission || false) : false,
+      timeSpentSeconds: !isTryMode ? (existingSubmission?.timeSpentSeconds || 0) : 0,
       antiCheatViolations: {
-        copyCount: existingSubmission?.antiCheatSummary?.copyCount || 0,
-        pasteCount: existingSubmission?.antiCheatSummary?.pasteCount || 0,
-        tabSwitchCount: existingSubmission?.antiCheatSummary?.tabSwitchCount || 0,
-        blurCount: existingSubmission?.antiCheatSummary?.blurCount || 0,
-        fullscreenExitCount: existingSubmission?.antiCheatSummary?.fullscreenExitCount || 0,
-        total: existingSubmission?.antiCheatSummary?.totalViolations || 0
+        copyCount: (!isTryMode && existingSubmission?.antiCheatSummary?.copyCount) || 0,
+        pasteCount: (!isTryMode && existingSubmission?.antiCheatSummary?.pasteCount) || 0,
+        tabSwitchCount: (!isTryMode && existingSubmission?.antiCheatSummary?.tabSwitchCount) || 0,
+        blurCount: (!isTryMode && existingSubmission?.antiCheatSummary?.blurCount) || 0,
+        fullscreenExitCount: (!isTryMode && existingSubmission?.antiCheatSummary?.fullscreenExitCount) || 0,
+        total: (!isTryMode && existingSubmission?.antiCheatSummary?.totalViolations) || 0
       },
-      terminalLogs: existingSubmission?.testResults?.rawOutput
+      terminalLogs: (!isTryMode && existingSubmission?.testResults?.rawOutput)
         ? [`[Assessment Loaded] Previous score: ${existingSubmission.score}%`, existingSubmission.testResults.rawOutput]
         : ['[Antigravity IDE Initialized] Workspace mounted. Sandbox ready.']
+    });
+  },
+
+  resetIdeSession: () => {
+    set({
+      challenge: null,
+      fileTree: [],
+      filesMap: {},
+      activeFilePath: '',
+      testResults: null,
+      terminalLogs: ['[Antigravity IDE Ready] Select a file to begin coding.'],
+      isExecuting: false,
+      executionStatus: 'IDLE',
+      executionProgress: 0,
+      activeSubmissionId: null,
+      isFinalSubmitted: false,
+      isSubmitting: false,
+      isTryMode: false,
+      timeSpentSeconds: 0,
+      antiCheatViolations: {
+        copyCount: 0,
+        pasteCount: 0,
+        tabSwitchCount: 0,
+        blurCount: 0,
+        fullscreenExitCount: 0,
+        total: 0
+      },
+      isFullscreen: false
     });
   },
 

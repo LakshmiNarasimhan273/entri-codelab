@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { challengeApi } from '../api/challengeApi';
 import { submissionApi } from '../api/submissionApi';
@@ -39,7 +39,6 @@ export default function LearnerAssessmentPage() {
   const {
     challenge,
     setChallenge,
-    filesMap,
     timeSpentSeconds,
     incrementTimeSpent,
     isExecuting,
@@ -53,13 +52,16 @@ export default function LearnerAssessmentPage() {
     isTryMode,
     setIsTryMode,
     appendTerminalLog,
-    testResults
+    testResults,
+    setTestResults,
+    resetIdeSession
   } = useIdeStore();
 
   const [bottomTab, setBottomTab] = useState('tests'); // 'tests' | 'terminal' | 'instructions'
   const [violationModalMessage, setViolationModalMessage] = useState(null);
   const [isConfirmSubmitOpen, setIsConfirmSubmitOpen] = useState(false);
   const [isSubmittingFinal, setIsSubmittingFinal] = useState(false);
+  const pollIntervalRef = useRef(null);
 
   // Set Try Mode from URL
   useEffect(() => {
@@ -67,6 +69,58 @@ export default function LearnerAssessmentPage() {
       setIsTryMode(true);
     }
   }, [isTryModeParam, setIsTryMode]);
+
+  // Clean up watchers and session when unmounting
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+      resetIdeSession();
+    };
+  }, [resetIdeSession]);
+
+  // Hybrid Polling Fallback Watcher (Prevents Stuck UI even if WebSockets are interrupted)
+  const startExecutionWatcher = useCallback((subId) => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+    }
+
+    const startTime = Date.now();
+    pollIntervalRef.current = setInterval(async () => {
+      try {
+        // 15-second safety cutoff: guarantee UI never remains in stuck Running state
+        if (Date.now() - startTime > 15000) {
+          clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+          setIsExecuting(false);
+          setExecutionStatus('FAILED');
+          appendTerminalLog('[TIMEOUT] Ephemeral container execution completed or timed out.');
+          return;
+        }
+
+        const res = await submissionApi.getStatus(subId);
+        const subData = res?.data || res;
+        if (subData && (subData.status === 'COMPLETED' || subData.testResults)) {
+          clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+          setTestResults(subData.testResults);
+          setIsExecuting(false);
+          setExecutionStatus('COMPLETED');
+          appendTerminalLog(`[EVALUATION COMPLETE] Final Score: ${subData.score || 0}%`);
+        } else if (subData && subData.status === 'FAILED') {
+          clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+          setIsExecuting(false);
+          setExecutionStatus('FAILED');
+          appendTerminalLog(`[EXECUTION FAILED] ${subData.testResults?.rawOutput || 'Execution failure.'}`);
+        }
+      } catch (pollErr) {
+        // Continue polling until timeout
+      }
+    }, 800);
+  }, [setIsExecuting, setExecutionStatus, setTestResults, appendTerminalLog]);
 
   // 1. Initialize Anti-Cheat Surveillance Hook (bypassed in Try IDE mode or when submitted)
   const { requestFullscreen } = useAntiCheat({
@@ -137,7 +191,7 @@ export default function LearnerAssessmentPage() {
     if (isExecuting || isFinalSubmitted) return;
 
     // 1. Iterate over all active Monaco models before triggering execution payload
-    const activeCode = getActiveMonacoCodeMap(filesMap);
+    const activeCode = getActiveMonacoCodeMap(useIdeStore.getState().filesMap);
 
     // 2. Instantly reset terminal UI state to 'EVALUATING'
     setIsExecuting(true);
@@ -151,6 +205,7 @@ export default function LearnerAssessmentPage() {
       const submissionId = res.data.submissionId;
       setIsExecuting(true, submissionId);
       joinSubmissionRoom(submissionId);
+      startExecutionWatcher(submissionId);
     } catch (err) {
       setIsExecuting(false);
       setExecutionStatus('FAILED');
@@ -168,7 +223,7 @@ export default function LearnerAssessmentPage() {
     setIsConfirmSubmitOpen(false);
 
     // 1. Iterate over all active Monaco models before triggering execution payload
-    const activeCode = getActiveMonacoCodeMap(filesMap);
+    const activeCode = getActiveMonacoCodeMap(useIdeStore.getState().filesMap);
 
     // 2. Guard anti-cheat proctoring against false-positives
     useProctoringStore.getState().setIsSubmitting(true);
@@ -187,6 +242,7 @@ export default function LearnerAssessmentPage() {
       const submissionId = res.data.submissionId;
       setIsExecuting(true, submissionId);
       joinSubmissionRoom(submissionId);
+      startExecutionWatcher(submissionId);
     } catch (err) {
       setExecutionStatus('FAILED');
       appendTerminalLog(`[SUBMISSION ERROR] ${err.response?.data?.message || err.message}`);

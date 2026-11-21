@@ -200,7 +200,16 @@ class SubmissionService {
   }
 
   async getLearnerAssessmentState(learnerId, challengeId) {
-    return submissionRepository.findByUserAndChallenge(learnerId, challengeId);
+    const sub = await submissionRepository.findByUserAndChallenge(learnerId, challengeId);
+    if (sub && sub.status === SUBMISSION_STATUS.RUNNING) {
+      // Auto-heal abandoned running states so learners never open an assessment stuck in RUNNING
+      const healedStatus = sub.testResults ? SUBMISSION_STATUS.COMPLETED : SUBMISSION_STATUS.IDLE;
+      const updated = await submissionRepository.update(sub.id || sub._id, {
+        status: healedStatus
+      });
+      return updated;
+    }
+    return sub;
   }
 
   async recordAntiCheatEvent(learnerId, challengeId, eventType, details = {}) {
