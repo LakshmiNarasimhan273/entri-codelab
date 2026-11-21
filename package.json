@@ -1,0 +1,35 @@
+{
+  "name": "antigravity-assessment-platform",
+  "version": "1.0.0",
+  "description": "Enterprise-grade high-concurrency online coding and assessment platform modeled after HackerEarth",
+  "private": true,
+  "workspaces": [
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "start:server": "npm --prefix server start",
+    "dev:server": "npm --prefix server run dev",
+    "start:client": "npm --prefix client start",
+    "dev:client": "npm --prefix client run dev",
+    "dev": "concurrently \"npm --prefix server run dev\" \"npm --prefix client run dev\"",
+    "build": "npm --prefix client run build",
+    "seed": "npm --prefix server run seed"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "keywords": [
+    "hackerearth",
+    "assessment-platform",
+    "monaco-editor",
+    "anti-cheat",
+    "sandbox-execution",
+    "bullmq",
+    "jest",
+    "mern"
+  ],
+  "author": "Antigravity Architecture Team",
+  "license": "MIT"
+}
+

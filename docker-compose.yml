@@ -1,0 +1,102 @@
+version: '3.8'
+
+services:
+  # MongoDB primary database service
+  mongodb:
+    image: mongo:7.0
+    container_name: antigravity-mongodb
+    restart: always
+    environment:
+      MONGO_INITDB_DATABASE: antigravity_assessment
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis for BullMQ, caching, rate limiting, and pub/sub
+  redis:
+    image: redis:7.2-alpine
+    container_name: antigravity-redis
+    restart: always
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Antigravity Express API Gateway / Server
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: antigravity-api
+    restart: always
+    ports:
+      - "5000:5000"
+    environment:
+      PORT: 5000
+      NODE_ENV: production
+      CLIENT_URL: http://localhost:5173
+      MONGODB_URI: mongodb://mongodb:27017/antigravity_assessment
+      REDIS_URL: redis://redis:6379
+      JWT_ACCESS_SECRET: antigravity_access_super_secret_jwt_key_2026_xyz
+      JWT_REFRESH_SECRET: antigravity_refresh_super_secret_jwt_key_2026_abc
+      MENTOR_SIGNUP_SECRET: mentor-secret-signup-99x
+      EXECUTION_DRIVER: docker
+      DOCKER_IMAGE: antigravity-sandbox-runner:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # Dedicated BullMQ Test Execution Worker
+  worker:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: antigravity-execution-worker
+    restart: always
+    command: npm run worker
+    environment:
+      NODE_ENV: production
+      MONGODB_URI: mongodb://mongodb:27017/antigravity_assessment
+      REDIS_URL: redis://redis:6379
+      EXECUTION_DRIVER: docker
+      DOCKER_IMAGE: antigravity-sandbox-runner:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # React Frontend Single Page App
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: antigravity-web-client
+    restart: always
+    ports:
+      - "5173:80"
+    depends_on:
+      - server
+
+volumes:
+  mongo-data:
+  redis-data:
+
