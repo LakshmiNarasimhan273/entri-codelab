@@ -1,4 +1,4 @@
-# Antigravity Assessment Platform ("HackerEarth Architecture")
+# Code Lab Application Architecture
 
 [![Node.js Version](https://img.shields.io/badge/Node.js-v18%2B-green.svg)](https://nodejs.org/)
 [![React Version](https://img.shields.io/badge/React-v18-blue.svg)](https://react.dev/)
